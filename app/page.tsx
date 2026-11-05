@@ -1,7 +1,3 @@
-import React from "react";
-import Imgage from "next/image";
-import "./globals.css"
-
 // ==========================================
 // 設定項目：Microsoft Forms の URL や展示情報を変更してください
 // ==========================================
@@ -9,7 +5,7 @@ const MS_FORMS_URL = "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=6
 const EXHIBITION_TITLE = "高専祭 グローブコントローラ 展示説明";
 const CATCH_PHRASE = "グローブ型コントローラを装着して、ロボット操縦を体験しよう！";
 const LOCATION_INFO = "専門棟1 2階 コミュニケーション談話室1";
-const CLASS_NAME = "安藤研究室 岡村 卒業研究";
+const CLASS_NAME = "安藤研究室 卒業研究展示";
 
 export default function ExhibitionPage() {
   return (
@@ -55,29 +51,32 @@ export default function ExhibitionPage() {
               <p className="text-xs text-slate-600 leading-relaxed">
                 ロボットを操縦して、2つのミッションをクリアしよう！<br />ミッションの難易度は、初心者でも楽しめるように調整しています。
               </p>
-              <h4 className="font-bold text-slate-900 text-lg mt-2">🏁 ミッション1</h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                障害物を避けつつコースを周回するミッションです。<br />素早い操作と判断力が求められます。
-              </p>
-              <h4 className="font-bold text-slate-900 text-lg mt-2">🎯 ミッション2</h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                指定されたルートを進み、ゴールに停車させるミッションです。<br />操作の丁寧さが試されます。
-              </p>
+              <div className="mt-3 space-y-2">
+                <h4 className="font-bold text-slate-900 text-lg mt-2">🏁 ミッション1</h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  障害物を避けつつコースを周回するミッションです。<br />素早い操作と判断力が求められます。
+                </p>
+                <h4 className="font-bold text-slate-900 text-lg mt-2">🎯 ミッション2</h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  指定されたルートを進み、ゴールに停車させるミッションです。<br />操作の丁寧さが試されます。
+                </p>
+              </div>
+              
             </div>
 
           </div>
         </section>
 
-        {/* 3. ★ Microsoft Forms アンケート誘導セクション ★ */}
+        {/* 3. Microsoft Forms アンケート誘導セクション */}
         <section className="bg-linear-to-br from-amber-50 to-orange-50 p-6 sm:p-8 rounded-2xl border-2 border-amber-300 shadow-md text-center">
           <div className="inline-block bg-amber-500 text-white text-xs font-bold px-3 py-1 rounded-full mb-3 shadow-sm">
-            所要時間：約1分 ⏱️
+            所要時間：約5分 ⏱️
           </div>
           <h2 className="text-2xl font-extrabold text-slate-900 mb-2">
-            展示はいかがでしたか？
+            お越しいただいた皆さまへ、アンケートのお願い
           </h2>
           <p className="text-sm text-slate-700 mb-6 max-w-lg mx-auto leading-relaxed">
-            ご来場ありがとうございます！皆さまからのご感想・フィードバックが、私たちの大きな励みになります。ぜひMicrosoft Formsアンケートへのご協力をお願いいたします。
+            ご来場ありがとうございました！本研究では皆さまからのご感想・フィードバックが重要なデータとなります。ぜひアンケートへのご協力をお願いいたします。
           </p>
 
           {/* Microsoft Forms ボタン */}
@@ -88,8 +87,8 @@ export default function ExhibitionPage() {
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-lg py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 gap-2"
             >
-              <span>📋</span>
-              <span>アンケートを開く (Microsoft Forms)</span>
+              
+              <span>📋<br />アンケートはこちらから<br />(Microsoft Forms)</span>
             </a>
           </div>
 
@@ -113,6 +112,22 @@ export default function ExhibitionPage() {
         </section>
 
         {/* 4. ブース情報 */}
+        <section className="bg-white p-6 rounded-2xl border border-slate-200 text-center shadow-sm">
+          <h3 className="font-bold text-slate-900 text-base mb-2">📍 関連ブース</h3>
+          <div className="space-y-4">
+            <a
+              href={MS_FORMS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-lg py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 gap-2"
+            >
+              
+              <span>📋<br />5年エレクトロニクスコース<br />ボタンラッシュ</span>
+            </a>
+          </div>
+          <p className="text-sm font-semibold text-teal-700 mt-4 mb-1">{CLASS_NAME}</p>
+          <p className="text-xs text-slate-600">展示場所：{LOCATION_INFO}</p>
+        </section>
         <section className="bg-white p-6 rounded-2xl border border-slate-200 text-center shadow-sm">
           <h3 className="font-bold text-slate-900 text-base mb-2">📍 ブース案内</h3>
           <p className="text-sm font-semibold text-teal-700 mb-1">{CLASS_NAME}</p>
