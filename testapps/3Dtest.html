@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 グローブ - 3D手モデル</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="stylesheet" href="./style-3Dtest.css">
+</head>
+<body>
+    <div id="scene" aria-label="指の曲げに連動する3D手モデル"></div>
+    <aside id="panel">
+        <h1>グローブ 3D手モデル</h1>
+        <p class="description">6個の屈曲センサーの値で、指の関節の曲げを表示します。</p>
+
+        <div class="connection-row">
+            <select id="modeSelect" aria-label="接続方式">
+                <option value="usb">USB Serial</option>
+                <option value="ble">BLE</option>
+                <option value="wifi">Wi-Fi (WebSocket)</option>
+            </select>
+            <button id="connectBtn" class="primary" type="button">接続</button>
+        </div>
+        <div id="status" role="status" aria-live="polite">未接続</div>
+
+        <div class="controls">
+            <button id="resetPoseBtn" type="button">姿勢をリセット</button>
+            <button id="openHandBtn" type="button">開いた手を記録</button>
+        </div>
+        <div class="calibration">
+            <button id="closedHandBtn" type="button">握った手を記録</button>
+            <button id="clearCalibrationBtn" type="button">曲げ補正を解除</button>
+        </div>
+        <p class="hint">開いた手・握った手をそれぞれ記録すると、センサーごとの値の向きと範囲を補正できます。</p>
+
+        <div class="section-title">センサー値</div>
+        <p class="hint">関節ごとのセンサー割り当ては、スクリプト内の <code>JOINT_SENSOR_MAP</code> で変更できます。</p>
+        <div id="sensorList" class="sensor-list"></div>
+    </aside>
+
+    <script>
+        const sceneHost = document.getElementById('scene');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x101617);
+
+        const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 8, 6);
+        camera.lookAt(0, 0.8, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        sceneHost.appendChild(renderer.domElement);
+
+        scene.add(new THREE.HemisphereLight(0xd8e0e4, 0x25292c, 0.8));
+        const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+        keyLight.position.set(-4, 7, 8);
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.set(1024, 1024);
+        keyLight.shadow.camera.left = -4;
+        keyLight.shadow.camera.right = 4;
+        keyLight.shadow.camera.top = 5;
+        keyLight.shadow.camera.bottom = -4;
+        keyLight.shadow.bias = -0.0005;
+        scene.add(keyLight);
+        const fillLight = new THREE.DirectionalLight(0xc5d0d4, 0.45);
+        fillLight.position.set(5, 2, -3);
+        scene.add(fillLight);
+        const rimLight = new THREE.DirectionalLight(0xe0e6e8, 0.65);
+        rimLight.position.set(1, 4, -6);
+        scene.add(rimLight);
+
+        const handRoot = new THREE.Group();
+        scene.add(handRoot);
+        const INITIAL_HAND_TILT = -Math.PI / 1.5; // 30 degrees
+        const initialHandPose = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(1, 0, 0),
+            INITIAL_HAND_TILT
+        );
+        handRoot.quaternion.copy(initialHandPose);
+
+        const skin = new THREE.MeshStandardMaterial({
+            color: 0x777e82,
+            roughness: 0.72,
+            metalness: 0
+        });
+        const jointSkin = new THREE.MeshStandardMaterial({
+            color: 0x8b9397,
+            roughness: 0.68,
+            metalness: 0
+        });
+        const nailMaterial = new THREE.MeshStandardMaterial({
+            color: 0xb1b8bb,
+            roughness: 0.58,
+            metalness: 0
+        });
+        const palmCreaseMaterial = new THREE.MeshStandardMaterial({
+            color: 0x50575b,
+            roughness: 0.9,
+            metalness: 0
+        });
+        const palmShape = new THREE.Shape();
+        palmShape.moveTo(-0.55, -0.22);
+        palmShape.quadraticCurveTo(-0.82, -0.12, -0.84, 0.25);
+        palmShape.lineTo(-0.76, 1.22);
+        palmShape.quadraticCurveTo(-0.72, 1.55, -0.42, 1.63);
+        palmShape.lineTo(0.48, 1.63);
+        palmShape.quadraticCurveTo(0.78, 1.55, 0.82, 1.22);
+        palmShape.lineTo(0.88, 0.32);
+        palmShape.quadraticCurveTo(0.9, -0.08, 0.55, -0.22);
+        palmShape.lineTo(0.42, -0.95);
+        palmShape.quadraticCurveTo(0.36, -1.18, 0.12, -1.2);
+        palmShape.lineTo(-0.18, -1.2);
+        palmShape.quadraticCurveTo(-0.4, -1.16, -0.42, -0.92);
+        palmShape.closePath();
+
+        const palmGeometry = new THREE.ExtrudeGeometry(palmShape, {
+            depth: 0.34,
+            bevelEnabled: true,
+            bevelSegments: 3,
+            steps: 1,
+            bevelSize: 0.09,
+            bevelThickness: 0.08,
+            curveSegments: 12
+        });
+        palmGeometry.translate(0, 0, -0.17);
+        handRoot.add(new THREE.Mesh(palmGeometry, skin));
+
+        function addPalmCrease(points) {
+            const curve = new THREE.CatmullRomCurve3(
+                points.map(([x, y]) => new THREE.Vector3(x, y, -0.255))
+            );
+            const crease = new THREE.Mesh(
+                new THREE.TubeGeometry(curve, 24, 0.012, 6, false),
+                palmCreaseMaterial
+            );
+            handRoot.add(crease);
+        }
+
+        addPalmCrease([[-0.57, 0.28], [-0.28, 0.18], [0.05, 0.16], [0.38, 0.24], [0.62, 0.39]]);
+        addPalmCrease([[-0.58, 0.53], [-0.28, 0.44], [0.05, 0.43], [0.37, 0.51], [0.64, 0.64]]);
+        addPalmCrease([[0.42, 0.9], [0.18, 0.79], [-0.12, 0.75], [-0.38, 0.81]]);
+
+        function makeFinger(lengths, radii, attach, startAngle = 0) {
+            const root = new THREE.Group();
+            root.position.set(attach.x, attach.y, 0.03);
+            root.rotation.z = startAngle;
+            handRoot.add(root);
+
+            const pivots = [];
+            let pivot = root;
+            lengths.forEach((length, index) => {
+                pivots.push(pivot);
+                const radius = radii[index];
+                const segment = new THREE.Mesh(
+                    new THREE.CylinderGeometry(radius * 0.88, radius, length, 16, 1),
+                    skin
+                );
+                segment.position.y = length / 2;
+                pivot.add(segment);
+
+                const nail = new THREE.Mesh(
+                    new THREE.SphereGeometry(radius * 0.48, 14, 10),
+                    nailMaterial
+                );
+                nail.scale.set(0.9, 1.25, 0.22);
+                nail.position.set(0, length * 0.72, radius * 0.82);
+                pivot.add(nail);
+
+                const joint = new THREE.Mesh(
+                    new THREE.SphereGeometry(radius * 0.98, 16, 12),
+                    jointSkin
+                );
+                joint.position.y = length;
+                pivot.add(joint);
+
+                const next = new THREE.Group();
+                next.position.y = length;
+                pivot.add(next);
+                pivot = next;
+            });
+
+            const tipRadius = radii[radii.length - 1] * 0.88;
+            const tip = new THREE.Mesh(
+                new THREE.SphereGeometry(tipRadius, 16, 12),
+                skin
+            );
+            pivot.add(tip);
+            return { root, pivots };
+        }
+
+        const THUMB_OUTWARD_ANGLE = 0.98;
+        const thumb = makeFinger([0.62, 0.46, 0.36], [0.19, 0.16, 0.13], { x: -0.68, y: 0.78 }, THUMB_OUTWARD_ANGLE);
+        const fingers = [
+            makeFinger([0.58, 0.43, 0.34], [0.145, 0.125, 0.105], { x: -0.57, y: 1.47 }),
+            makeFinger([0.66, 0.48, 0.37], [0.15, 0.13, 0.11], { x: -0.19, y: 1.54 }),
+            makeFinger([0.61, 0.44, 0.34], [0.145, 0.125, 0.105], { x: 0.2, y: 1.52 }),
+            makeFinger([0.49, 0.37, 0.3], [0.13, 0.115, 0.095], { x: 0.57, y: 1.43 })
+        ];
+        handRoot.traverse(object => {
+            if (object.isMesh) {
+                object.castShadow = true;
+                object.receiveShadow = true;
+            }
+        });
+
+        // Map first, second, and third joints to Flex1-Flex6 (0-based); null means unassigned.
+        // Flex1/2: thumb joints 2/3. Flex3-6: index-to-little finger joint 2.
+        const JOINT_SENSOR_MAP = {
+            thumb: [null, 0, 1],
+            index: [null, 2, null],
+            middle: [null, 3, null],
+            ring: [null, 4, null],
+            little: [null, 5, null]
+        };
+        const JOINT_ANGLE_SCALE = [0.7, 0.65, 0.55];
+        const FINGER_SPREAD_ANGLES = [0.12, 0.04, -0.04, -0.12];
+
+        const sensorList = document.getElementById('sensorList');
+        const sensorBars = Array.from({ length: 6 }, (_, index) => {
+            const row = document.createElement('div');
+            row.className = 'sensor-row';
+            row.innerHTML = `<span>Flex ${index + 1}</span><div class="sensor-track"><div class="sensor-fill"></div></div><span>---</span>`;
+            sensorList.appendChild(row);
+            return {
+                fill: row.querySelector('.sensor-fill'),
+                value: row.lastElementChild
+            };
+        });
+
+        const flexValues = Array(6).fill(null);
+        let openValues = null;
+        let closedValues = null;
+        let isCalibrated = false;
+        let baseQuaternion = new THREE.Quaternion();
+        let calibrationSum = new THREE.Quaternion();
+        let calibrationCount = 0;
+        const calibrationLimit = 50;
+        const BLE_SENSOR_PACKET_BYTES = 26;
+        const textEncoder = new TextEncoder();
+        let receiveBuffer = '';
+        let serialPort = null;
+        let serialReader = null;
+        let bleDevice = null;
+        let webSocket = null;
+        let connected = false;
+
+        const AXIS_SWAP = { x: 'x', y: 'y', z: 'z' };
+        const INVERT_AXES = { x: true, y: false, z: false };
+
+        function remapQuaternionAxes(quaternion) {
+            const vector = new THREE.Vector3(quaternion.x, quaternion.y, quaternion.z);
+            const mapped = new THREE.Vector3(
+                vector[AXIS_SWAP.x],
+                vector[AXIS_SWAP.y],
+                vector[AXIS_SWAP.z]
+            );
+            if (INVERT_AXES.x) mapped.x *= -1;
+            if (INVERT_AXES.y) mapped.y *= -1;
+            if (INVERT_AXES.z) mapped.z *= -1;
+            return new THREE.Quaternion(mapped.x, mapped.y, mapped.z, quaternion.w).normalize();
+        }
+
+        function updateOrientation(rawQuaternion) {
+            if (!isCalibrated) {
+                if (calibrationCount === 0) {
+                    calibrationSum.copy(rawQuaternion);
+                } else {
+                    const sample = rawQuaternion.clone();
+                    if (calibrationSum.dot(sample) < 0) {
+                        sample.set(-sample.x, -sample.y, -sample.z, -sample.w);
+                    }
+                    calibrationSum.x += sample.x;
+                    calibrationSum.y += sample.y;
+                    calibrationSum.z += sample.z;
+                    calibrationSum.w += sample.w;
+                }
+                calibrationCount++;
+                if (calibrationCount >= calibrationLimit) {
+                    baseQuaternion.set(
+                        calibrationSum.x / calibrationLimit,
+                        calibrationSum.y / calibrationLimit,
+                        calibrationSum.z / calibrationLimit,
+                        calibrationSum.w / calibrationLimit
+                    );
+                    baseQuaternion.normalize();
+                    isCalibrated = true;
+                }
+                return;
+            }
+
+            const relative = baseQuaternion.clone().invert().multiply(rawQuaternion);
+            handRoot.quaternion.copy(initialHandPose).multiply(remapQuaternionAxes(relative));
+        }
+
+        function flexAmount(sensorIndex) {
+            if (!Number.isInteger(sensorIndex)) return 0;
+            const raw = flexValues[sensorIndex];
+            if (!Number.isFinite(raw)) return 0;
+            if (!openValues || !closedValues) return THREE.MathUtils.clamp(raw / 4095, 0, 1);
+
+            const open = openValues[sensorIndex];
+            const closed = closedValues[sensorIndex];
+            const minimum = Math.min(open, closed);
+            const maximum = Math.max(open, closed);
+            if (maximum - minimum < 1) return 0;
+            return THREE.MathUtils.clamp((raw - minimum) / (maximum - minimum), 0, 1);
+        }
+
+        function updateHandPose() {
+            thumb.pivots.forEach((pivot, jointIndex) => {
+                pivot.rotation.z = -flexAmount(JOINT_SENSOR_MAP.thumb[jointIndex])
+                    * JOINT_ANGLE_SCALE[jointIndex];
+            });
+
+            const fingerNames = ['index', 'middle', 'ring', 'little'];
+            fingers.forEach((finger, fingerIndex) => {
+                const jointSensors = JOINT_SENSOR_MAP[fingerNames[fingerIndex]];
+                finger.root.rotation.z = FINGER_SPREAD_ANGLES[fingerIndex];
+                finger.pivots.forEach((pivot, jointIndex) => {
+                    pivot.rotation.x = -flexAmount(jointSensors[jointIndex])
+                        * JOINT_ANGLE_SCALE[jointIndex];
+                });
+            });
+        }
+
+        function updateSensorReadouts() {
+            sensorBars.forEach((bar, index) => {
+                const value = flexValues[index];
+                bar.value.textContent = Number.isFinite(value) ? String(Math.round(value)) : '---';
+                bar.fill.style.width = `${Number.isFinite(value) ? Math.max(0, Math.min(value / 4095, 1)) * 100 : 0}%`;
+            });
+        }
+
+        function handleValues(values) {
+            if (values.length < 13 || !values.slice(0, 13).every(Number.isFinite)) return;
+
+            const quaternion = new THREE.Quaternion(values[1], values[2], values[3], values[0]);
+            if (quaternion.lengthSq() > 0) updateOrientation(quaternion.normalize());
+            for (let index = 0; index < 6; index++) flexValues[index] = values[index + 7];
+            updateSensorReadouts();
+            updateHandPose();
+        }
+
+        function handleData(line) {
+            handleValues(line.trim().split(',').map(Number));
+        }
+
+        function handleBleNotification(dataView) {
+            if (dataView.byteLength !== BLE_SENSOR_PACKET_BYTES) {
+                consumePayload(new TextDecoder().decode(
+                    new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength)
+                ));
+                return;
+            }
+
+            const values = [];
+            for (let index = 0; index < 4; index++) {
+                values.push(dataView.getInt16(index * 2, true) / 32767);
+            }
+            for (let index = 0; index < 3; index++) {
+                values.push(dataView.getInt16(8 + index * 2, true));
+            }
+            for (let index = 0; index < 6; index++) {
+                values.push(dataView.getUint16(14 + index * 2, true));
+            }
+            handleValues(values);
+        }
+
+        function consumePayload(payload) {
+            receiveBuffer += payload;
+            let newlineIndex;
+            while ((newlineIndex = receiveBuffer.indexOf('\n')) !== -1) {
+                const line = receiveBuffer.slice(0, newlineIndex);
+                receiveBuffer = receiveBuffer.slice(newlineIndex + 1);
+                if (line.trim()) handleData(line);
+            }
+            if (receiveBuffer.length > 2048) receiveBuffer = '';
+        }
+
+        function setStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        function captureFlexCalibration(target) {
+            if (!flexValues.every(Number.isFinite)) {
+                setStatus('先にグローブを接続し、センサー値を受信してください。');
+                return;
+            }
+            if (target === 'open') {
+                openValues = flexValues.slice();
+                setStatus('開いた手のセンサー値を記録しました。');
+            } else {
+                closedValues = flexValues.slice();
+                setStatus('握った手のセンサー値を記録しました。');
+            }
+            updateHandPose();
+        }
+
+        document.getElementById('openHandBtn').addEventListener('click', () => captureFlexCalibration('open'));
+        document.getElementById('closedHandBtn').addEventListener('click', () => captureFlexCalibration('closed'));
+        document.getElementById('clearCalibrationBtn').addEventListener('click', () => {
+            openValues = null;
+            closedValues = null;
+            setStatus('曲げ補正を解除しました。');
+            updateHandPose();
+        });
+        document.getElementById('resetPoseBtn').addEventListener('click', () => {
+            isCalibrated = false;
+            calibrationCount = 0;
+            calibrationSum.identity();
+            baseQuaternion.identity();
+            handRoot.quaternion.copy(initialHandPose);
+            setStatus('姿勢を再キャリブレーション中です。手を静止してください。');
+        });
+
+        async function connectUsb() {
+            if (!navigator.serial) throw new Error('このブラウザーはWeb Serialに対応していません。');
+            serialPort = await navigator.serial.requestPort();
+            await serialPort.open({ baudRate: 115200 });
+            const writer = serialPort.writable.getWriter();
+            try {
+                await writer.write(textEncoder.encode('U\n'));
+            } finally {
+                writer.releaseLock();
+            }
+            setStatus('USB接続中');
+            void readSerialLoop();
+        }
+
+        async function readSerialLoop() {
+            const port = serialPort;
+            const decoder = new TextDecoder();
+            while (port && port.readable) {
+                serialReader = port.readable.getReader();
+                try {
+                    while (true) {
+                        const { value, done } = await serialReader.read();
+                        if (done) break;
+                        if (value) consumePayload(decoder.decode(value, { stream: true }));
+                    }
+                } finally {
+                    serialReader.releaseLock();
+                    serialReader = null;
+                }
+                break;
+            }
+            if (port === serialPort && connected) {
+                connected = false;
+                document.getElementById('connectBtn').textContent = '接続';
+                setStatus('USB切断');
+            }
+        }
+
+        async function connectBle() {
+            if (!navigator.bluetooth) throw new Error('このブラウザーはWeb Bluetoothに対応していません。');
+            bleDevice = await navigator.bluetooth.requestDevice({
+                filters: [{ name: 'Glove_Sensor_ESP32_BLE' }, { namePrefix: 'Glove' }],
+                optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
+            });
+            const server = await bleDevice.gatt.connect();
+            const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
+            const tx = await service.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+            const rx = await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
+            await tx.startNotifications();
+            tx.addEventListener('characteristicvaluechanged', event => {
+                const dataView = event.target.value;
+                handleBleNotification(dataView);
+            });
+            if (rx.writeValueWithResponse) {
+                await rx.writeValueWithResponse(textEncoder.encode('B\n'));
+            } else {
+                await rx.writeValueWithoutResponse(textEncoder.encode('B\n'));
+            }
+            setStatus('BLE接続中');
+            bleDevice.addEventListener('gattserverdisconnected', () => {
+                connected = false;
+                document.getElementById('connectBtn').textContent = '接続';
+                setStatus('BLE切断');
+            });
+        }
+
+        async function connectWifi() {
+            webSocket = new WebSocket('ws://localhost:8081');
+            webSocket.addEventListener('open', () => {
+                webSocket.send('W\n');
+                setStatus('Wi-Fi接続中');
+            });
+            webSocket.addEventListener('message', event => consumePayload(`${event.data}\n`));
+            webSocket.addEventListener('close', () => {
+                connected = false;
+                document.getElementById('connectBtn').textContent = '接続';
+                setStatus('Wi-Fi切断');
+            });
+            webSocket.addEventListener('error', () => setStatus('Wi-Fi接続エラー'));
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', async event => {
+            const button = event.currentTarget;
+            if (connected) {
+                if (serialReader) await serialReader.cancel();
+                if (serialPort) {
+                    await serialPort.close();
+                    serialPort = null;
+                }
+                if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+                if (webSocket) webSocket.close();
+                connected = false;
+                button.textContent = '接続';
+                setStatus('切断しました。');
+                return;
+            }
+
+            button.disabled = true;
+            try {
+                receiveBuffer = '';
+                const mode = document.getElementById('modeSelect').value;
+                if (mode === 'usb') await connectUsb();
+                else if (mode === 'ble') await connectBle();
+                else await connectWifi();
+                connected = true;
+                button.textContent = '切断';
+            } catch (error) {
+                console.error('グローブ接続エラー:', error);
+                setStatus(`接続失敗: ${error.message || error}`);
+            } finally {
+                button.disabled = false;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
