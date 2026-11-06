@@ -2,10 +2,13 @@
 // 設定項目：Microsoft Forms の URL や展示情報を変更してください
 // ==========================================
 const MS_FORMS_URL = "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=6Zxr3Lqm0069Z5-eOshc8YnImyZOG7tAjKPa3j2V1-FUOFFDMTNVQVVKSDVOWFZQMFg0TEdMM0xLQS4u";
+const E_URL = "https://5ekosenfes2026.vercel.app";
 const EXHIBITION_TITLE = "高専祭 グローブコントローラ 展示説明";
 const CATCH_PHRASE = "グローブ型コントローラを装着して、ロボット操縦を体験しよう！";
 const LOCATION_INFO = "専門棟1 2階 コミュニケーション談話室1";
 const CLASS_NAME = "安藤研究室 卒業研究展示";
+const E_LOCATION_INFO = "体育館裏 武道館";
+const E_CLASS_NAME = "5年 エレクトロニクスコース";
 
 export default function ExhibitionPage() {
   return (
@@ -26,7 +29,7 @@ export default function ExhibitionPage() {
       </header>
 
       {/* メインコンテンツ */}
-      <main className="max-w-3xl mx-auto px-6 mt-8 space-y-10">
+      <main className="max-w-3xl mx-auto px-6 mt-8 space-y-5">
 
         {/* 2. 展示の見どころ*/}
         <section className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
@@ -40,7 +43,7 @@ export default function ExhibitionPage() {
               <p className="text-xs text-slate-600 leading-relaxed">
                 装着型コントローラです！
               </p>
-              <img src="./img/glove_controller.jpg" alt="グローブコントローラ" />
+              <img src="/img/glovecon.jpg" alt="グローブコントローラ" />
               <p className="text-xs text-slate-600 leading-relaxed">
                 片手さえあれば子どもから大人まで誰でも楽しんでいただけます！
               </p>
@@ -116,17 +119,17 @@ export default function ExhibitionPage() {
           <h3 className="font-bold text-slate-900 text-base mb-2">📍 関連ブース</h3>
           <div className="space-y-4">
             <a
-              href={MS_FORMS_URL}
+              href={E_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-lg py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 gap-2"
             >
               
-              <span>📋<br />5年エレクトロニクスコース<br />ボタンラッシュ</span>
+              <span>5年<br />エレクトロニクスコース<br />ボタンラッシュ</span>
             </a>
           </div>
-          <p className="text-sm font-semibold text-teal-700 mt-4 mb-1">{CLASS_NAME}</p>
-          <p className="text-xs text-slate-600">展示場所：{LOCATION_INFO}</p>
+          <p className="text-sm font-semibold text-teal-700 mt-4 mb-1">{E_CLASS_NAME}</p>
+          <p className="text-xs text-slate-600">展示場所：{E_LOCATION_INFO}</p>
         </section>
         <section className="bg-white p-6 rounded-2xl border border-slate-200 text-center shadow-sm">
           <h3 className="font-bold text-slate-900 text-base mb-2">📍 ブース案内</h3>
