@@ -250,7 +250,7 @@
         let connected = false;
 
         const AXIS_SWAP = { x: 'x', y: 'y', z: 'z' };
-        const INVERT_AXES = { x: true, y: false, z: false };
+        const INVERT_AXES = { x: false, y: false, z: false };
 
         function remapQuaternionAxes(quaternion) {
             const vector = new THREE.Vector3(quaternion.x, quaternion.y, quaternion.z);

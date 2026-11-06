@@ -85,25 +85,6 @@
             background: rgba(0, 255, 204, 0.05);
         }
 
-        /* 🏃 モーション判定専用バッジ */
-        .motion-badge {
-            font-size: 14px;
-            font-weight: bold;
-            padding: 8px 16px;
-            border-radius: 6px;
-            background: #222;
-            color: #777;
-            border: 1px solid #444;
-            transition: all 0.2s ease;
-        }
-
-        .motion-badge.detected {
-            color: #121212;
-            background: #00ffcc;
-            border-color: #00ffcc;
-            box-shadow: 0 0 10px rgba(0, 255, 204, 0.5);
-        }
-
         .container {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -352,7 +333,6 @@
         </select>
         <button id="connectBtn">接続開始</button>
         <div id="statusIndicator" class="status-badge">未接続</div>
-        <div id="motionIndicator" class="motion-badge">Motion: NONE</div>
     </div>
 
     <div class="3Dtest"><a href="https://sotuken-2026-glovecon.vercel.app/testapps/3Dtest">3Dテスト</a></div>
@@ -437,7 +417,6 @@
         const connectBtn = document.getElementById('connectBtn');
         const connectionType = document.getElementById('connectionType');
         const statusIndicator = document.getElementById('statusIndicator');
-        const motionIndicator = document.getElementById('motionIndicator');
         const robotControls = document.getElementById('robotControls');
         const relayControls = document.getElementById('relayControls');
         const connectGloveBtn = document.getElementById('connectGloveBtn');
@@ -502,14 +481,13 @@
         let relayNeutralQuaternion = null;
         let latestGloveQuaternion = null;
         let chartRedrawPending = false;
-        let latestMotionValue = 0;
         let bleConnectStage = 'idle';
         let bleConnectStartedAt = 0;
 
         let keepReading = false;
         let receiveBuffer = "";
 
-        // 📊 0〜12の13個のデータを4つのグラフに割り当て（13個目のMotionは独立表示）
+        // 📊 13個のデータを4つのグラフに割り当て
         const chartConfigs = [
             {
                 id: 'chart0',
@@ -546,7 +524,7 @@
         ];
 
         const maxPoints = 120;
-        const channelData = Array.from({ length: 14 }, () => []);
+        const channelData = Array.from({ length: 13 }, () => []);
         const chartContexts = [];
 
         function initCharts() {
@@ -576,7 +554,6 @@
             window.requestAnimationFrame(() => {
                 chartRedrawPending = false;
                 redrawAllCharts();
-                updateMotionStatus(latestMotionValue);
             });
         }
 
@@ -652,17 +629,6 @@
             ctx.fillText('t', w - 6, h - 4);
         }
 
-        // 🏃 モーション状態（0/1）のリアルタイム更新
-        function updateMotionStatus(val) {
-            if (val === 1) {
-                motionIndicator.textContent = "Motion: ACTIVE (1)";
-                motionIndicator.classList.add('detected');
-            } else {
-                motionIndicator.textContent = "Motion: IDLE (0)";
-                motionIndicator.classList.remove('detected');
-            }
-        }
-
         window.addEventListener('DOMContentLoaded', () => {
             initCharts();
             redrawAllCharts();
@@ -705,8 +671,6 @@
                 connectBtn.classList.remove('disconnect');
                 statusIndicator.textContent = "未接続";
                 statusIndicator.classList.remove('active');
-                motionIndicator.textContent = "Motion: NONE";
-                motionIndicator.classList.remove('detected');
                 activeMode = null;
                 activeRobotAction = null;
                 activeRobotSpeed = 0;
@@ -726,7 +690,6 @@
             robotControls.classList.toggle('hidden', !isRobotMode);
             relayControls.classList.toggle('hidden', !isRelayMode);
             sensorDashboard.classList.toggle('hidden', isRobotMode);
-            motionIndicator.classList.toggle('hidden', isRobotMode);
             connectBtn.classList.toggle('hidden', isRelayMode);
             if (isRelayMode) {
                 activeMode = 'glove_robot_relay';
@@ -1478,14 +1441,14 @@
             if (line === "") return;
 
             const values = line.split(',');
-            if (values.length >= 14) {
+            if (values.length >= 13) {
                 const quaternion = {
                     w: parseFloat(values[0]),
                     x: parseFloat(values[1]),
                     y: parseFloat(values[2]),
                     z: parseFloat(values[3])
                 };
-                for (let i = 0; i < 14; i++) {
+                for (let i = 0; i < 13; i++) {
                     const val = parseFloat(values[i]);
                     channelData[i].push(Number.isFinite(val) ? val : null);
                     if (channelData[i].length > maxPoints) {
@@ -1493,7 +1456,6 @@
                     }
                 }
                 
-                latestMotionValue = Math.round(parseFloat(values[13]));
                 relayGlovePose(quaternion);
                 scheduleChartRedraw();
             } else {
