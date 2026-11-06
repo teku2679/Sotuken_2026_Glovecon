@@ -689,7 +689,7 @@
             const isRelayMode = connectionType.value === 'glove_robot_relay';
             robotControls.classList.toggle('hidden', !isRobotMode);
             relayControls.classList.toggle('hidden', !isRelayMode);
-            sensorDashboard.classList.toggle('hidden', isRobotMode);
+            sensorDashboard.classList.toggle('hidden', isRobotMode || isRelayMode);
             connectBtn.classList.toggle('hidden', isRelayMode);
             if (isRelayMode) {
                 activeMode = 'glove_robot_relay';
