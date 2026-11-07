@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 // ==========================================
 // 設定項目：Microsoft Forms の URL や展示情報を変更してください
 // ==========================================
@@ -47,6 +49,15 @@ export default function ExhibitionPage() {
               <p className="text-xs text-slate-600 leading-relaxed">
                 片手さえあれば子どもから大人まで誰でも楽しんでいただけます！
               </p>
+              <div className="space-y-4">
+                <Link
+                  href="/glovecon"
+                  className="inline-flex items-center justify-center w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 gap-2"
+                >
+
+                  <span>コントローラの詳細</span>
+                </Link>
+              </div>
             </div>
 
             <div className="bg-emerald-50/70 p-5 rounded-xl border border-emerald-100 text-center">

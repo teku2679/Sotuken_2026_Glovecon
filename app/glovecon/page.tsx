@@ -1,7 +1,8 @@
+import Link from "next/link";
+
 // ==========================================
 // 設定項目：Microsoft Forms の URL や展示情報を変更してください
 // ==========================================
-const HOMEPAGE_URL = "./";
 const E_URL = "https://5ekosenfes2026.vercel.app";
 const EXHIBITION_TITLE = "グローブコントローラ 解説";
 const CATCH_PHRASE = "グローブ型コントローラの開発過程や仕組みを解説します！";
@@ -94,16 +95,14 @@ export default function ExhibitionPage() {
 
           {/* Microsoft Forms ボタン */}
           <div className="space-y-4">
-            <a
-              href={HOMEPAGE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              href="/"
               className="inline-flex items-center justify-center w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-lg py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 gap-2"
             >
               
               <span>ホームページへ戻る</span>
 
-            </a>
+            </Link>
           </div>
 
         </section>
