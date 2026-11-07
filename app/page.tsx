@@ -52,9 +52,8 @@ export default function ExhibitionPage() {
               <div className="space-y-4">
                 <Link
                   href="/glovecon"
-                  className="inline-flex items-center justify-center w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 gap-2"
+                  className="inline-flex items-center justify-center w-full sm:w-auto bg-green-600 hover:bg-green-500 text-white font-bold text-lg py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 gap-2 mt-1"
                 >
-
                   <span>コントローラの詳細</span>
                 </Link>
               </div>

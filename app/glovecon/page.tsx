@@ -68,7 +68,7 @@ export default function ExhibitionPage() {
               </p>
               <img src="/img/aturyoku.jpg" alt="圧力センサ" className="mx-auto my-3" />
               <p className="text-xs text-slate-600 leading-relaxed">
-                片手さえあれば子どもから大人まで誰でも楽しんでいただけます！
+                自作の圧力センサを使用しています。
               </p>
             </div>
 
@@ -79,12 +79,17 @@ export default function ExhibitionPage() {
           <h2 className="text-xl font-bold text-slate-900 mb-6 text-center border-b pb-3">
             🎮 コントローラの外装
           </h2>
-          <img src="/img/glovecon.jpg" alt="グローブコントローラ" className="mx-auto my-3" />
-          
           <div className="grid gap-4 sm:grid-cols-3">
+            <div className="bg-emerald-50/70 p-5 rounded-xl border border-emerald-100 text-center">
+              <img src="/img/glovecon.jpg" alt="グローブコントローラ" className="mx-auto my-3" />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3 mt-3">
             <div className="bg-emerald-50/70 p-5 rounded-xl border border-emerald-100 text-center">
               <h3 className="font-bold text-slate-900 text-base mb-1">回路基板</h3>
               <img src="/img/kiban.jpg" alt="回路基板" className="mx-auto my-3" />
+              <img src="/img/kiban-ura.jpg" alt="回路基板裏" className="mx-auto my-3" />
             </div>
 
           </div>
