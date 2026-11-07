@@ -85,6 +85,25 @@
             background: rgba(0, 255, 204, 0.05);
         }
 
+        /* 🏃 モーション判定専用バッジ */
+        .motion-badge {
+            font-size: 14px;
+            font-weight: bold;
+            padding: 8px 16px;
+            border-radius: 6px;
+            background: #222;
+            color: #777;
+            border: 1px solid #444;
+            transition: all 0.2s ease;
+        }
+
+        .motion-badge.detected {
+            color: #121212;
+            background: #00ffcc;
+            border-color: #00ffcc;
+            box-shadow: 0 0 10px rgba(0, 255, 204, 0.5);
+        }
+
         .container {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -333,9 +352,8 @@
         </select>
         <button id="connectBtn">接続開始</button>
         <div id="statusIndicator" class="status-badge">未接続</div>
+        <div id="motionIndicator" class="motion-badge">Motion: NONE</div>
     </div>
-
-    <div class="3Dtest"><a href="https://sotuken-2026-glovecon.vercel.app/testapps/3Dtest">3Dテスト</a></div>
 
     <section id="robotControls" class="robot-controls hidden" aria-label="ロボット操作">
         <h2>Pico W ロボット操作</h2>
@@ -364,7 +382,7 @@
         <h2>グローブ → Pico W</h2>
         <div class="relay-actions">
             <button id="connectGloveBtn" type="button">グローブ接続</button>
-            <button id="connectRelayRobotBtn" type="button">ロボット接続</button>
+            <button id="connectRelayRobotBtn" type="button">コントローラ接続</button>
         </div>
         <div id="relayStatus" class="relay-status" aria-live="polite">
             <span id="gloveRelayStatus">グローブ: 未接続</span>
@@ -372,6 +390,7 @@
             <span id="relayModeStatus">中継停止中</span>
             <span id="relayPoseStatus">Pitch 0.0° / Roll 0.0°</span>
         </div>
+        <p>グローブを傾けてロボットを操作します。</p>
         <div class="relay-sensitivity">
             <label for="relaySensitivity">傾き感度</label>
             <input id="relaySensitivity" type="number" min="10" max="80" step="1" value="35" disabled>
@@ -417,6 +436,7 @@
         const connectBtn = document.getElementById('connectBtn');
         const connectionType = document.getElementById('connectionType');
         const statusIndicator = document.getElementById('statusIndicator');
+        const motionIndicator = document.getElementById('motionIndicator');
         const robotControls = document.getElementById('robotControls');
         const relayControls = document.getElementById('relayControls');
         const connectGloveBtn = document.getElementById('connectGloveBtn');
@@ -440,8 +460,6 @@
         const NUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
         const NUS_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
         const NUS_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-        const ROBOT_DEVICE_NAME = "PicoW_Robot_BLE";
-
         let isConnected = false;
         let isConnecting = false;
 
@@ -481,13 +499,14 @@
         let relayNeutralQuaternion = null;
         let latestGloveQuaternion = null;
         let chartRedrawPending = false;
+        let latestMotionValue = 0;
         let bleConnectStage = 'idle';
         let bleConnectStartedAt = 0;
 
         let keepReading = false;
         let receiveBuffer = "";
 
-        // 📊 13個のデータを4つのグラフに割り当て
+        // 📊 0〜12の13個のデータを4つのグラフに割り当て（13個目のMotionは独立表示）
         const chartConfigs = [
             {
                 id: 'chart0',
@@ -524,7 +543,7 @@
         ];
 
         const maxPoints = 120;
-        const channelData = Array.from({ length: 13 }, () => []);
+        const channelData = Array.from({ length: 14 }, () => []);
         const chartContexts = [];
 
         function initCharts() {
@@ -554,6 +573,7 @@
             window.requestAnimationFrame(() => {
                 chartRedrawPending = false;
                 redrawAllCharts();
+                updateMotionStatus(latestMotionValue);
             });
         }
 
@@ -629,6 +649,20 @@
             ctx.fillText('t', w - 6, h - 4);
         }
 
+        // 🏃 モーション状態（0/1）のリアルタイム更新
+        function updateMotionStatus(val) {
+            if (val !== 0 && val !== 1) {
+                motionIndicator.textContent = "Motion: NONE";
+                motionIndicator.classList.remove('detected');
+            } else if (val === 1) {
+                motionIndicator.textContent = "Motion: ACTIVE (1)";
+                motionIndicator.classList.add('detected');
+            } else {
+                motionIndicator.textContent = "Motion: IDLE (0)";
+                motionIndicator.classList.remove('detected');
+            }
+        }
+
         window.addEventListener('DOMContentLoaded', () => {
             initCharts();
             redrawAllCharts();
@@ -671,6 +705,8 @@
                 connectBtn.classList.remove('disconnect');
                 statusIndicator.textContent = "未接続";
                 statusIndicator.classList.remove('active');
+                motionIndicator.textContent = "Motion: NONE";
+                motionIndicator.classList.remove('detected');
                 activeMode = null;
                 activeRobotAction = null;
                 activeRobotSpeed = 0;
@@ -690,6 +726,7 @@
             robotControls.classList.toggle('hidden', !isRobotMode);
             relayControls.classList.toggle('hidden', !isRelayMode);
             sensorDashboard.classList.toggle('hidden', isRobotMode || isRelayMode);
+            motionIndicator.classList.toggle('hidden', isRobotMode);
             connectBtn.classList.toggle('hidden', isRelayMode);
             if (isRelayMode) {
                 activeMode = 'glove_robot_relay';
@@ -709,18 +746,27 @@
             const robotConnected = Boolean(relayRobotDevice?.gatt?.connected && relayRobotWriteCharacteristic);
             gloveRelayStatus.textContent = `グローブ: ${gloveConnected ? '接続済み' : '未接続'}`;
             robotRelayStatus.textContent = `Pico W: ${robotConnected ? '接続済み' : '未接続'}`;
-            relayModeStatus.textContent = relayArmed
-                ? '中継中'
-                : (gloveConnected && robotConnected ? '中立姿勢を記録して開始できます' : '中継停止中');
+            relayModeStatus.textContent = getRelayReadinessStatus(gloveConnected, robotConnected);
             connectGloveBtn.disabled = relayGloveConnecting || gloveConnected;
             connectGloveBtn.textContent = relayGloveConnecting ? '接続中...' : (gloveConnected ? 'グローブ接続済み' : 'グローブ接続');
             connectRelayRobotBtn.disabled = relayRobotConnecting || robotConnected;
-            connectRelayRobotBtn.textContent = relayRobotConnecting ? '接続中...' : (robotConnected ? 'ロボット接続済み' : 'ロボット接続');
+            connectRelayRobotBtn.textContent = relayRobotConnecting ? '接続中...' : (robotConnected ? 'コントローラ接続済み' : 'コントローラ接続');
             relaySensitivity.disabled = !gloveConnected || relayArmed;
-            startRelayBtn.disabled = !gloveConnected || !robotConnected || !latestGloveQuaternion || relayArmed;
+            startRelayBtn.disabled = !gloveConnected || !robotConnected || !latestGloveQuaternion ||
+                relayArmed;
             stopRelayBtn.disabled = !relayArmed;
             disconnectRelayBtn.disabled = !isRelayConnected();
             connectionType.disabled = isConnected || isRelayConnected();
+        }
+
+        function getRelayReadinessStatus(gloveConnected, robotConnected) {
+            if (relayArmed) return '中継中';
+            if (!gloveConnected) return 'グローブを接続してください';
+            if (!robotConnected) return 'コントローラを接続してください';
+            if (!latestGloveQuaternion) {
+                return 'グローブのセンサーデータを受信中...';
+            }
+            return '中立姿勢を記録して中継を開始できます';
         }
 
         function logBleStage(stage, details = {}) {
@@ -768,7 +814,7 @@
             try {
                 if (!window.isSecureContext) throw new Error('BLE接続にはHTTPSまたはlocalhostが必要です。');
                 relayGloveDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'Glove_Sensor_ESP32_BLE' }],
+                    acceptAllDevices: true,
                     optionalServices: [NUS_SERVICE_UUID]
                 });
                 relayGloveDevice.addEventListener('gattserverdisconnected', onRelayGloveDisconnected);
@@ -807,9 +853,10 @@
             try {
                 if (!window.isSecureContext) throw new Error('BLE接続にはHTTPSまたはlocalhostが必要です。');
                 relayRobotDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: ROBOT_DEVICE_NAME }],
+                    acceptAllDevices: true,
                     optionalServices: [NUS_SERVICE_UUID]
                 });
+                console.info('[RELAY] Robot selected', { name: relayRobotDevice.name, id: relayRobotDevice.id });
                 relayRobotDevice.addEventListener('gattserverdisconnected', onRelayRobotDisconnected);
                 relayRobotServer = await relayRobotDevice.gatt.connect();
                 const service = await relayRobotServer.getPrimaryService(NUS_SERVICE_UUID);
@@ -1117,7 +1164,7 @@
 
             const sensitivity = Math.max(10, Math.min(80, Number(relaySensitivity.value) || 35));
             const scale = sensitivity * Math.PI / 180;
-            const throttle = Math.max(-1, Math.min(1, pose.pitch / scale));
+            const throttle = Math.max(-1, Math.min(1, -pose.pitch / scale));
             const steering = Math.max(-1, Math.min(1, pose.roll / scale));
             relayPoseStatus.textContent = `Pitch ${(pose.pitch * 180 / Math.PI).toFixed(1)}° / Roll ${(pose.roll * 180 / Math.PI).toFixed(1)}°`;
 
@@ -1285,9 +1332,7 @@
                     statusIndicator.textContent = "BLEデバイス選択中...";
                     logBleStage('requestDevice: waiting for selection', { mode });
                     bleDevice = await navigator.bluetooth.requestDevice({
-                        filters: mode === 'robot_ble'
-                            ? [{ name: ROBOT_DEVICE_NAME }]
-                            : [{ name: 'Glove_Sensor_ESP32_BLE' }, { namePrefix: 'Glove' }],
+                        acceptAllDevices: true,
                         optionalServices: [NUS_SERVICE_UUID]
                     });
                     logBleStage('requestDevice: selected', { name: bleDevice.name, id: bleDevice.id });
@@ -1455,7 +1500,11 @@
                         channelData[i].shift();
                     }
                 }
-                
+
+                updateRelayControls();
+                latestMotionValue = values.length >= 14 && Number.isFinite(parseFloat(values[13]))
+                    ? Math.round(parseFloat(values[13]))
+                    : null;
                 relayGlovePose(quaternion);
                 scheduleChartRedraw();
             } else {

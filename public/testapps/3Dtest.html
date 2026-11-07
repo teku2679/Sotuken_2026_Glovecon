@@ -31,12 +31,9 @@
             <button id="closedHandBtn" type="button">握った手を記録</button>
             <button id="clearCalibrationBtn" type="button">曲げ補正を解除</button>
         </div>
-        <p class="hint">開いた手・握った手をそれぞれ記録すると、センサーごとの値の向きと範囲を補正できます。</p>
-
         <div class="section-title">センサー値</div>
         <p class="hint">関節ごとのセンサー割り当ては、スクリプト内の <code>JOINT_SENSOR_MAP</code> で変更できます。</p>
         <div id="sensorList" class="sensor-list"></div>
-        <div class="3Dtest"><a href="https://sotuken-2026-glovecon.vercel.app/testapps/">2Dテスト</a></div>
     </aside>
 
     <script>
@@ -193,7 +190,7 @@
             return { root, pivots };
         }
 
-        const THUMB_OUTWARD_ANGLE = 0.98;
+        const THUMB_OUTWARD_ANGLE = 0.78;
         const thumb = makeFinger([0.62, 0.46, 0.36], [0.19, 0.16, 0.13], { x: -0.68, y: 0.78 }, THUMB_OUTWARD_ANGLE);
         const fingers = [
             makeFinger([0.58, 0.43, 0.34], [0.145, 0.125, 0.105], { x: -0.57, y: 1.47 }),
@@ -208,16 +205,16 @@
             }
         });
 
-        // Map first, second, and third joints to Flex1-Flex6 (0-based); null means unassigned.
-        // Flex1/2: thumb joints 2/3. Flex3-6: index-to-little finger joint 2.
+        // Sensor indexes are zero-based. One sensor drives all joints of each long finger.
         const JOINT_SENSOR_MAP = {
-            thumb: [null, 0, 1],
-            index: [null, 2, null],
-            middle: [null, 3, null],
-            ring: [null, 4, null],
-            little: [null, 5, null]
+            thumb: [6, 5, 5],
+            index: [3, 3, 3],
+            middle: [2, 2, 2],
+            ring: [1, 1, 1],
+            little: [0, 0, 0]
         };
-        const JOINT_ANGLE_SCALE = [0.7, 0.65, 0.55];
+        const JOINT_ANGLE_SCALE = [0.3, 0.8, 0.65];
+        const THUMB_JOINT_ANGLE_SCALE = [0, 0.9, 0.75];
         const FINGER_SPREAD_ANGLES = [0.12, 0.04, -0.04, -0.12];
 
         const sensorList = document.getElementById('sensorList');
@@ -235,6 +232,14 @@
         const flexValues = Array(6).fill(null);
         let openValues = null;
         let closedValues = null;
+        const autoFlexMinimum = Array(6).fill(null);
+        const autoFlexMaximum = Array(6).fill(null);
+        const autoFlexLastMinimumSeen = Array(6).fill(0);
+        const autoFlexLastMaximumSeen = Array(6).fill(0);
+        const autoFlexLastUpdate = Array(6).fill(0);
+        const AUTO_FLEX_MINIMUM_WIDTH = 50;
+        const AUTO_FLEX_STALE_MS = 8000;
+        const AUTO_FLEX_SHRINK_PER_SECOND = 4;
         let isCalibrated = false;
         let baseQuaternion = new THREE.Quaternion();
         let calibrationSum = new THREE.Quaternion();
@@ -249,11 +254,24 @@
         let webSocket = null;
         let connected = false;
 
-        const AXIS_SWAP = { x: 'x', y: 'y', z: 'z' };
-        const INVERT_AXES = { x: false, y: false, z: false };
+        const AXIS_SWAP = { x: 'y', y: 'x', z: 'z' };
+        const INVERT_AXES = { x: true, y: true, z: true};
 
         function remapQuaternionAxes(quaternion) {
             const vector = new THREE.Vector3(quaternion.x, quaternion.y, quaternion.z);
+            const sourceAxes = [AXIS_SWAP.x, AXIS_SWAP.y, AXIS_SWAP.z];
+            let permutationSign = 1;
+            for (let first = 0; first < sourceAxes.length; first++) {
+                for (let second = first + 1; second < sourceAxes.length; second++) {
+                    if ('xyz'.indexOf(sourceAxes[first]) > 'xyz'.indexOf(sourceAxes[second])) {
+                        permutationSign *= -1;
+                    }
+                }
+            }
+            const basisDeterminant = permutationSign
+                * (INVERT_AXES.x ? -1 : 1)
+                * (INVERT_AXES.y ? -1 : 1)
+                * (INVERT_AXES.z ? -1 : 1);
             const mapped = new THREE.Vector3(
                 vector[AXIS_SWAP.x],
                 vector[AXIS_SWAP.y],
@@ -262,7 +280,12 @@
             if (INVERT_AXES.x) mapped.x *= -1;
             if (INVERT_AXES.y) mapped.y *= -1;
             if (INVERT_AXES.z) mapped.z *= -1;
-            return new THREE.Quaternion(mapped.x, mapped.y, mapped.z, quaternion.w).normalize();
+            return new THREE.Quaternion(
+                mapped.x * basisDeterminant,
+                mapped.y * basisDeterminant,
+                mapped.z * basisDeterminant,
+                quaternion.w
+            ).normalize();
         }
 
         function updateOrientation(rawQuaternion) {
@@ -301,20 +324,62 @@
             if (!Number.isInteger(sensorIndex)) return 0;
             const raw = flexValues[sensorIndex];
             if (!Number.isFinite(raw)) return 0;
-            if (!openValues || !closedValues) return THREE.MathUtils.clamp(raw / 4095, 0, 1);
+            if (!openValues || !closedValues) {
+                const minimum = autoFlexMinimum[sensorIndex];
+                const maximum = autoFlexMaximum[sensorIndex];
+                if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) return 0.5;
+                return THREE.MathUtils.clamp((raw - minimum) / (maximum - minimum), 0, 1);
+            }
 
             const open = openValues[sensorIndex];
             const closed = closedValues[sensorIndex];
-            const minimum = Math.min(open, closed);
-            const maximum = Math.max(open, closed);
-            if (maximum - minimum < 1) return 0;
-            return THREE.MathUtils.clamp((raw - minimum) / (maximum - minimum), 0, 1);
+            if (Math.abs(closed - open) < 1) return 0;
+            return THREE.MathUtils.clamp((raw - open) / (closed - open), 0, 1);
+        }
+
+        function updateAutoFlexCalibration(now) {
+            flexValues.forEach((raw, index) => {
+                if (!Number.isFinite(raw)) return;
+
+                if (autoFlexMinimum[index] === null) {
+                    autoFlexMinimum[index] = Math.max(0, raw - AUTO_FLEX_MINIMUM_WIDTH / 2);
+                    autoFlexMaximum[index] = Math.min(4095, raw + AUTO_FLEX_MINIMUM_WIDTH / 2);
+                    autoFlexLastMinimumSeen[index] = now;
+                    autoFlexLastMaximumSeen[index] = now;
+                    autoFlexLastUpdate[index] = now;
+                    return;
+                }
+
+                let minimum = autoFlexMinimum[index];
+                let maximum = autoFlexMaximum[index];
+                if (raw < minimum) minimum = raw;
+                if (raw > maximum) maximum = raw;
+                const tolerance = Math.max(30, (maximum - minimum) * 0.02);
+                if (raw <= minimum + tolerance) autoFlexLastMinimumSeen[index] = now;
+                if (raw >= maximum - tolerance) autoFlexLastMaximumSeen[index] = now;
+
+                const elapsedSeconds = Math.max(0, now - autoFlexLastUpdate[index]) / 1000;
+                const shrinkAmount = AUTO_FLEX_SHRINK_PER_SECOND * elapsedSeconds;
+                const minimumWidth = Math.min(AUTO_FLEX_MINIMUM_WIDTH, 4095);
+                if (now - autoFlexLastMinimumSeen[index] >= AUTO_FLEX_STALE_MS) {
+                    minimum = Math.min(raw, minimum + shrinkAmount, maximum - minimumWidth);
+                }
+                if (now - autoFlexLastMaximumSeen[index] >= AUTO_FLEX_STALE_MS) {
+                    maximum = Math.max(raw, maximum - shrinkAmount, minimum + minimumWidth);
+                }
+
+                autoFlexMinimum[index] = Math.max(0, minimum);
+                autoFlexMaximum[index] = Math.min(4095, maximum);
+                autoFlexLastUpdate[index] = now;
+            });
         }
 
         function updateHandPose() {
+            thumb.root.rotation.z = THUMB_OUTWARD_ANGLE;
             thumb.pivots.forEach((pivot, jointIndex) => {
+                if (jointIndex === 0) return;
                 pivot.rotation.z = -flexAmount(JOINT_SENSOR_MAP.thumb[jointIndex])
-                    * JOINT_ANGLE_SCALE[jointIndex];
+                    * THUMB_JOINT_ANGLE_SCALE[jointIndex];
             });
 
             const fingerNames = ['index', 'middle', 'ring', 'little'];
@@ -342,6 +407,7 @@
             const quaternion = new THREE.Quaternion(values[1], values[2], values[3], values[0]);
             if (quaternion.lengthSq() > 0) updateOrientation(quaternion.normalize());
             for (let index = 0; index < 6; index++) flexValues[index] = values[index + 7];
+            updateAutoFlexCalibration(performance.now());
             updateSensorReadouts();
             updateHandPose();
         }
@@ -406,7 +472,9 @@
         document.getElementById('clearCalibrationBtn').addEventListener('click', () => {
             openValues = null;
             closedValues = null;
-            setStatus('曲げ補正を解除しました。');
+            autoFlexMinimum.fill(null);
+            autoFlexMaximum.fill(null);
+            setStatus('手動校正を解除し、自動校正を開始しました。');
             updateHandPose();
         });
         document.getElementById('resetPoseBtn').addEventListener('click', () => {
