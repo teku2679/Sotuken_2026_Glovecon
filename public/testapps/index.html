@@ -281,6 +281,12 @@
             font-family: 'Courier New', Courier, monospace;
         }
 
+        .gamepad-status {
+            color: #888;
+            font-size: 12px;
+            text-align: center;
+        }
+
         .relay-actions {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -375,6 +381,7 @@
                 <span id="joystickThumb" class="joystick-thumb" aria-hidden="true"></span>
             </div>
             <div id="joystickState" class="joystick-state" aria-live="polite">STOP</div>
+            <div id="gamepadStatus" class="gamepad-status" aria-live="polite">XInput: コントローラを接続してください（左スティックで操作）</div>
         </div>
     </section>
 
@@ -455,6 +462,7 @@
         const robotJoystick = document.getElementById('robotJoystick');
         const joystickThumb = document.getElementById('joystickThumb');
         const joystickState = document.getElementById('joystickState');
+        const gamepadStatus = document.getElementById('gamepadStatus');
         const sensorDashboard = document.getElementById('sensorDashboard');
 
         const NUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -479,6 +487,9 @@
         let joystickPointerId = null;
         let joystickX = 0;
         let joystickY = 0;
+        let gamepadPollTimer = null;
+        let gamepadWasDriving = false;
+        let keyboardControlActive = false;
         let pendingRobotCommand = null;
         let pendingRobotCommandImmediate = false;
         let pendingRobotCommandWaiters = [];
@@ -718,6 +729,7 @@
                 updateJoystickThumb(0, 0);
                 joystickState.textContent = 'STOP';
             }
+            updateGamepadPolling();
         }
 
         function updateConnectionModeView() {
@@ -1198,6 +1210,77 @@
             applyJoystickVector(joystickX, joystickY);
         }
 
+        function getStandardGamepad() {
+            if (typeof navigator.getGamepads !== 'function') return null;
+            return Array.from(navigator.getGamepads() || []).find(gamepad =>
+                gamepad && gamepad.connected && gamepad.mapping === 'standard'
+            ) || null;
+        }
+
+        function updateGamepadStatus() {
+            if (typeof navigator.getGamepads !== 'function') {
+                gamepadStatus.textContent = 'このブラウザはゲームパッド操作に対応していません';
+                return;
+            }
+            const gamepads = Array.from(navigator.getGamepads() || []).filter(gamepad => gamepad && gamepad.connected);
+            const gamepad = gamepads.find(candidate => candidate.mapping === 'standard');
+            if (gamepad) {
+                gamepadStatus.textContent = `XInput対応コントローラ: 接続済み (${gamepad.id || 'Gamepad'})`;
+            } else if (gamepads.length > 0) {
+                gamepadStatus.textContent = 'コントローラ接続済み（標準マッピング非対応）';
+            } else {
+                gamepadStatus.textContent = 'XInput: コントローラを接続してください（左スティックで操作）';
+            }
+        }
+
+        function updateGamepadControl() {
+            updateGamepadStatus();
+            if (!isConnected || activeMode !== 'robot_ble' || document.hidden || !document.hasFocus()) {
+                if (gamepadWasDriving) {
+                    gamepadWasDriving = false;
+                    updateJoystickThumb(0, 0);
+                    stopRobotAction();
+                }
+                return;
+            }
+            if (joystickPointerId !== null || keyboardControlActive) return;
+
+            const gamepad = getStandardGamepad();
+            if (!gamepad) {
+                if (gamepadWasDriving) {
+                    gamepadWasDriving = false;
+                    updateJoystickThumb(0, 0);
+                    stopRobotAction();
+                }
+                return;
+            }
+
+            const x = gamepad.axes[0] || 0;
+            const y = gamepad.axes[1] || 0;
+            const rect = robotJoystick.getBoundingClientRect();
+            const thumbRadius = joystickThumb.getBoundingClientRect().width / 2;
+            const maxRadius = Math.max(0, rect.width / 2 - thumbRadius - 12);
+            updateJoystickThumb(x * maxRadius, y * maxRadius);
+            gamepadWasDriving = Math.hypot(x, y) > 0.16;
+            applyJoystickVector(x, y);
+        }
+
+        function updateGamepadPolling() {
+            const shouldPoll = isConnected && activeMode === 'robot_ble';
+            if (shouldPoll && gamepadPollTimer === null) {
+                updateGamepadStatus();
+                gamepadPollTimer = window.setInterval(updateGamepadControl, 50);
+            } else if (!shouldPoll && gamepadPollTimer !== null) {
+                clearInterval(gamepadPollTimer);
+                gamepadPollTimer = null;
+                gamepadWasDriving = false;
+                updateGamepadStatus();
+            }
+        }
+
+        window.addEventListener('gamepadconnected', updateGamepadStatus);
+        window.addEventListener('gamepaddisconnected', updateGamepadStatus);
+
         connectionType.addEventListener('change', updateConnectionModeView);
         robotMinSpeed.addEventListener('input', () => {
             const minimum = Math.max(0, Math.min(65535, Number(robotMinSpeed.value) || 0));
@@ -1249,18 +1332,34 @@
             const vector = vectors[event.key];
             if (!vector || robotJoystick.getAttribute('aria-disabled') === 'true') return;
             event.preventDefault();
+            keyboardControlActive = true;
             applyJoystickVector(vector[0], vector[1]);
         });
         robotJoystick.addEventListener('keyup', event => {
             if (event.key.startsWith('Arrow')) {
                 event.preventDefault();
+                keyboardControlActive = false;
                 stopRobotAction();
             }
         });
 
-        window.addEventListener('blur', resetJoystickControl);
+        window.addEventListener('blur', () => {
+            keyboardControlActive = false;
+            resetJoystickControl();
+            if (gamepadWasDriving) {
+                gamepadWasDriving = false;
+                updateJoystickThumb(0, 0);
+            }
+        });
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) resetJoystickControl();
+            if (document.hidden) {
+                keyboardControlActive = false;
+                resetJoystickControl();
+                if (gamepadWasDriving) {
+                    gamepadWasDriving = false;
+                    updateJoystickThumb(0, 0);
+                }
+            }
         });
 
         async function cleanupBleConnection() {
